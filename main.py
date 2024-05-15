@@ -22,6 +22,7 @@ logging.basicConfig(
 )
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 DOMAIN = os.getenv("DOMAIN")
+USER_ID = os.getenv("USER_ID")
 DATABASE_FILE = "db.db"
 
 gauth = GoogleAuth()
@@ -36,7 +37,8 @@ sql_create_clients_table = """
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
         file_id TEXT NOT NULL,
-        username TEXT NOT NULL UNIQUE
+        username TEXT NOT NULL,
+        content TEXT NOT NULL
     );
     """
 
@@ -63,6 +65,12 @@ def write_dict_to_file(dict_list, filename):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+
+    if user_id != USER_ID:
+        await update.message.reply_text("You don't have access to use this bot")
+        return
+
     text = """
     This is help message.
     List of the available commands:
@@ -76,6 +84,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def list_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+
+    if user_id != USER_ID:
+        await update.message.reply_text("You don't have access to use this bot")
+        return
+
     conn = sqlite3.connect(DATABASE_FILE)
     try:
         cursor = conn.cursor()
@@ -92,6 +106,12 @@ async def list_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_client_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+
+    if user_id != USER_ID:
+        await update.message.reply_text("You don't have access to use this bot")
+        return
+
     query = update.callback_query
     client_id = int(query.data.split("_")[1])
 
@@ -117,6 +137,12 @@ async def show_client_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+
+    if user_id != USER_ID:
+        await update.message.reply_text("You don't have access to use this bot")
+        return
+
     query = update.callback_query
     action, client_id = query.data.split("_")
     if action == "delete":
@@ -135,12 +161,20 @@ async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await query.answer(f"Error")
 
+
 def get_token():
     with open("token.txt", "r") as f:
         token = f.read()
     return token
 
+
 async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+
+    if user_id != USER_ID:
+        await update.message.reply_text("You don't have access to use this bot")
+        return
+
     conn = sqlite3.connect(DATABASE_FILE)
     try:
         cursor = conn.cursor()
@@ -152,7 +186,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cursor.execute("SELECT * FROM clients")
             client_names = cursor.fetchall()
             for client in client_names:
-                id, name, file_id, username = client
+                id, name, file_id, username, content = client
                 found = False
                 for client_item in data:
                     if client_item["username"] == username:
@@ -189,34 +223,47 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     file_id = extract_file_id(file1['alternateLink'])
 
-                    cursor.execute("INSERT OR REPLACE INTO clients (name, file_id, username) VALUES (?, ?, "
-                                   "?)", (name, file_id, username))
+                    cursor.execute("INSERT OR REPLACE INTO clients (name, file_id, username, content) VALUES (?, ?, "
+                                   "?, ?)", (name, file_id, username, text))
                     conn.commit()
                 else:
-                    id, name, file_id,  username = client_db
+                    id, name, file_id,  username, content = client_db
 
-                    file = drive.CreateFile({'id': file_id})
                     text = ""
                     for link in client["links"]:
-                        link = link.split("#")                        
+                        link = link.split("#")
                         text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
 
                     text = base64.b64encode(text.encode()).decode()
 
-                    if file.GetContentString() != text:
-                        
+                    if content != text:
+                        file = drive.CreateFile({'id': file_id})
                         file.SetContentString(text)
                         file.Upload()
+
+                        update_query = "UPDATE clients SET content = ? WHERE id = ?"
+                        cursor.execute(update_query, (text, id))
+                        conn.commit()
+
                         await update.message.reply_text(
                             "Client with username " + str(username) + " updated successfully!")
 
             await update.message.reply_text("Total Clients Number: " + str(len(data)))
+        else:
+            await update.message.reply_text("Error fetching users from given domain. Content: "+res.text)
     except sqlite3.Error as e:
         await update.message.reply_text(f"Error fetching client list: {e}")
     finally:
         conn.close()
 
+
 async def sign_in(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+
+    if user_id != USER_ID:
+        await update.message.reply_text("You don't have access to use this bot")
+        return
+
     args = context.args
     if len(args) != 2:
         await update.message.reply_text("Usage: /sign_in <username> <password>")
@@ -235,6 +282,12 @@ async def sign_in(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+
+    if user_id != USER_ID:
+        await update.message.reply_text("You don't have access to use this bot")
+        return
+
     text = """
 This is help message.
 List of the available commands:
@@ -248,6 +301,12 @@ List of the available commands:
 
 
 async def get_urls(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+
+    if user_id != USER_ID:
+        await update.message.reply_text("You don't have access to use this bot")
+        return
+
     conn = sqlite3.connect(DATABASE_FILE)
     try:
         cursor = conn.cursor()
@@ -276,7 +335,7 @@ def update_clients_scheduled():
             cursor.execute("SELECT * FROM clients")
             client_names = cursor.fetchall()
             for client in client_names:
-                id, name, file_id, username = client
+                id, name, file_id, username, content = client
                 found = False
                 for client_item in data:
                     if client_item["username"] == username:
@@ -313,13 +372,12 @@ def update_clients_scheduled():
 
                     file_id = extract_file_id(file1['alternateLink'])
 
-                    cursor.execute("INSERT OR REPLACE INTO clients (name, file_id, username) VALUES (?, ?, "
-                                   "?)", (name, file_id, username))
+                    cursor.execute("INSERT OR REPLACE INTO clients (name, file_id, username, content) VALUES (?, ?, "
+                                   "?, ?)", (name, file_id, username, text))
                     conn.commit()
                 else:
-                    id, name, file_id, username = client_db
+                    id, name, file_id, username, content = client_db
 
-                    file = drive.CreateFile({'id': file_id})
                     text = ""
                     for link in client["links"]:
                         link = link.split("#")
@@ -327,9 +385,14 @@ def update_clients_scheduled():
 
                     text = base64.b64encode(text.encode()).decode()
 
-                    if file.GetContentString() != text:
+                    if content != text:
+                        file = drive.CreateFile({'id': file_id})
                         file.SetContentString(text)
                         file.Upload()
+
+                        update_query = "UPDATE clients SET content = ? WHERE id = ?"
+                        cursor.execute(update_query, (text, id))
+                        conn.commit()
 
             print("[UPDATED]")
     except sqlite3.Error as e:
@@ -349,7 +412,7 @@ def run_scheduled():
 
 if __name__ == '__main__':
     schedule_thread = threading.Thread(target=run_scheduled)
-    schedule_thread.start()
+    # schedule_thread.start()
 
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
