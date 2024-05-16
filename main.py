@@ -22,7 +22,6 @@ logging.basicConfig(
 )
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 DOMAIN = os.getenv("DOMAIN")
-USER_ID = os.getenv("USER_ID")
 DATABASE_FILE = "db.db"
 
 gauth = GoogleAuth()
@@ -38,11 +37,20 @@ sql_create_clients_table = """
         name TEXT NOT NULL,
         file_id TEXT NOT NULL,
         username TEXT NOT NULL,
-        content TEXT NOT NULL
+        content TEXT NOT NULL,
+        user INTEGER NOT NULL
     );
     """
 
+sql_create_users_table = """
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY,
+        token TEXT NOT NULL,
+        telegram_id TEXT NOT NULL
+    );"""
+
 c.execute(sql_create_clients_table)
+c.execute(sql_create_users_table)
 conn.commit()
 conn.close()
 
@@ -67,10 +75,6 @@ def write_dict_to_file(dict_list, filename):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
 
-    if user_id != USER_ID:
-        await update.message.reply_text("You don't have access to use this bot")
-        return
-
     text = """
     This is help message.
     List of the available commands:
@@ -86,14 +90,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
 
-    if user_id != USER_ID:
-        await update.message.reply_text("You don't have access to use this bot")
-        return
-
     conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        await update.message.reply_text(f"Please sign in to use")
+        return
     try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM clients")
+        id, token, telegram_id = user
+        cursor.execute("SELECT * FROM clients WHERE user = ?", (id, ))
         client_names = cursor.fetchall()
         if client_names:
             await update.message.reply_text("Total Clients: " + str(len(client_names)))
@@ -105,88 +112,49 @@ async def list_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
 
-async def show_client_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
-
-    if user_id != USER_ID:
-        await update.message.reply_text("You don't have access to use this bot")
-        return
-
-    query = update.callback_query
-    client_id = int(query.data.split("_")[1])
-
+def get_user(telegram_id):
     conn = sqlite3.connect(DATABASE_FILE)
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM clients WHERE id=?", (client_id,))
-        client = cursor.fetchone()
-        # Fetch client details from the database based on the client_id
-        # You can customize this part to retrieve other client information
-        client_info = (f"Client ID: {client[0]}\nName: {client[1]}\nDrive Url: https://drive.usercontent.google.com/uc?authuser=0&export"
-                       f"=download&id={client[2]}\n Marzban username: {client[3]}")
-        buttons = [
-            InlineKeyboardButton("Delete", callback_data=f"delete_{client_id}"),
-        ]
-        reply_markup = InlineKeyboardMarkup([buttons])
-        await query.edit_message_text(text=client_info, reply_markup=reply_markup)
-    except sqlite3.Error as e:
-        await update.message.reply_text(f"Error fetching client list: {e}")
-    finally:
-        conn.close()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+    user = cursor.fetchone()
+    conn.close()
+    return user
 
 
-async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
-
-    if user_id != USER_ID:
-        await update.message.reply_text("You don't have access to use this bot")
-        return
-
-    query = update.callback_query
-    action, client_id = query.data.split("_")
-    if action == "delete":
-        conn = sqlite3.connect(DATABASE_FILE)
-        try:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM clients WHERE id = ?", (client_id,))
-            conn.commit()
-        except sqlite3.Error as e:
-            print(f"Error deleting client: {e}")
-        finally:
-            conn.close()
-        # Delete client from the database based on client_id
-        # Implement your deletion logic here
-        await query.answer(f"Client with ID {client_id} deleted successfully.")
+def save_or_replace_token(telegram_id, token):
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+    user = cursor.fetchone()
+    if user:
+        cursor.execute("UPDATE users SET token=? WHERE id=?", (token, telegram_id))
     else:
-        await query.answer(f"Error")
-
-
-def get_token():
-    with open("token.txt", "r") as f:
-        token = f.read()
-    return token
+        cursor.execute("INSERT INTO users (token, telegram_id) VALUES (?, ?);", (token, telegram_id))
+    conn.commit()
+    conn.close()
 
 
 async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
 
-    if user_id != USER_ID:
-        await update.message.reply_text("You don't have access to use this bot")
-        return
-
     conn = sqlite3.connect(DATABASE_FILE)
     try:
+        user = get_user(user_id)
+        if not user:
+            await update.message.reply_text(f"Please sign in to use")
+            return
+        user_id, token, telegram_id = user
+
         cursor = conn.cursor()
-        res = requests.get(DOMAIN + "/api/users", headers={"Authorization": "Bearer " + get_token()})
+        res = requests.get(DOMAIN + "/api/users", headers={"Authorization": "Bearer " + token})
 
         if res.status_code == 200:
             data = res.json()["users"]
 
-            cursor.execute("SELECT * FROM clients")
+            cursor.execute("SELECT * FROM clients WHERE user = ?", (user_id, ))
             client_names = cursor.fetchall()
             for client in client_names:
-                id, name, file_id, username, content = client
+                id, name, file_id, username, content, user = client
                 found = False
                 for client_item in data:
                     if client_item["username"] == username:
@@ -200,7 +168,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 name = str(random.randint(100, 1000000000000000))
                 username = client["username"]
 
-                cursor.execute("SELECT * FROM clients WHERE username=?", (username,))
+                cursor.execute("SELECT * FROM clients WHERE username=? AND user=?", (username, user_id,))
                 client_db = cursor.fetchone()
                 if not client_db:
                     file1 = drive.CreateFile(
@@ -223,11 +191,11 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     file_id = extract_file_id(file1['alternateLink'])
 
-                    cursor.execute("INSERT OR REPLACE INTO clients (name, file_id, username, content) VALUES (?, ?, "
-                                   "?, ?)", (name, file_id, username, text))
+                    cursor.execute("INSERT OR REPLACE INTO clients (name, file_id, username, content, user) VALUES ("
+                                   "?, ?, ?, ?, ?)", (name, file_id, username, text, user_id))
                     conn.commit()
                 else:
-                    id, name, file_id,  username, content = client_db
+                    id, name, file_id, username, content, user = client_db
 
                     text = ""
                     for link in client["links"]:
@@ -260,10 +228,6 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def sign_in(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
 
-    if user_id != USER_ID:
-        await update.message.reply_text("You don't have access to use this bot")
-        return
-
     args = context.args
     if len(args) != 2:
         await update.message.reply_text("Usage: /sign_in <username> <password>")
@@ -274,8 +238,7 @@ async def sign_in(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = res.json()
 
     if data.get("access_token"):
-        with open('token.txt', 'w') as f:
-            f.write(data["access_token"])
+        save_or_replace_token(user_id, data["access_token"])
         await update.message.reply_text("Sign in successful")
     else:
         await update.message.reply_text("Sign in failed")
@@ -283,10 +246,6 @@ async def sign_in(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
-
-    if user_id != USER_ID:
-        await update.message.reply_text("You don't have access to use this bot")
-        return
 
     text = """
 This is help message.
@@ -303,17 +262,20 @@ List of the available commands:
 async def get_urls(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
 
-    if user_id != USER_ID:
-        await update.message.reply_text("You don't have access to use this bot")
+    user = get_user(user_id)
+    if not user:
+        await update.message.reply_text(f"Please sign in to use")
         return
+
+    id, token, telegram_id = user
 
     conn = sqlite3.connect(DATABASE_FILE)
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM clients")
+        cursor.execute("SELECT * FROM clients WHERE user=?", (id, ))
         client_names = cursor.fetchall()
-        write_dict_to_file(client_names, 'urls-2024.txt')
-        document_path = 'urls-2024.txt'  # Specify the path to your generated text file
+        document_path = str(telegram_id) + '.txt'  # Specify the path to your generated text file
+        write_dict_to_file(client_names, document_path)
         with open(document_path, 'rb') as document:
             chat_id = update.message.chat_id
             await context.bot.send_document(chat_id, document)
@@ -325,80 +287,92 @@ async def get_urls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def update_clients_scheduled():
     conn = sqlite3.connect(DATABASE_FILE)
-    try:
-        cursor = conn.cursor()
-        res = requests.get(DOMAIN + "/api/users", headers={"Authorization": "Bearer " + get_token()})
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users")
+    users = cursor.fetchall()
 
-        if res.status_code == 200:
-            data = res.json()["users"]
+    for user in users:
+        try:
+            user_id, token, telegram_id = user
 
-            cursor.execute("SELECT * FROM clients")
-            client_names = cursor.fetchall()
-            for client in client_names:
-                id, name, file_id, username, content = client
-                found = False
-                for client_item in data:
-                    if client_item["username"] == username:
-                        found = True
-                        break
-                if not found:
-                    cursor.execute("DELETE FROM clients WHERE id = ?", (id,))
-                    conn.commit()
+            res = requests.get(DOMAIN + "/api/users", headers={"Authorization": "Bearer " + token})
 
-            for client in data:
-                name = str(random.randint(100, 1000000000000000))
-                username = client["username"]
+            if res.status_code == 200:
+                data = res.json()["users"]
 
-                cursor.execute("SELECT * FROM clients WHERE username=?", (username,))
-                client_db = cursor.fetchone()
-                if not client_db:
-                    file1 = drive.CreateFile(
-                        {'title': random.randint(100,
-                                                 1000000000000000)})  # Create GoogleDriveFile instance with title 'Hello.txt'.
-
-                    text = ""
-                    for link in client["links"]:
-                        link = link.split("#")
-                        text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
-
-                    text = base64.b64encode(text.encode()).decode()
-                    file1.SetContentString(text)  # Set content of the file from given string.
-                    file1.Upload()
-
-                    permission = file1.InsertPermission({
-                        'type': 'anyone',
-                        'value': 'anyone',
-                        'role': 'reader'})
-
-                    file_id = extract_file_id(file1['alternateLink'])
-
-                    cursor.execute("INSERT OR REPLACE INTO clients (name, file_id, username, content) VALUES (?, ?, "
-                                   "?, ?)", (name, file_id, username, text))
-                    conn.commit()
-                else:
-                    id, name, file_id, username, content = client_db
-
-                    text = ""
-                    for link in client["links"]:
-                        link = link.split("#")
-                        text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
-
-                    text = base64.b64encode(text.encode()).decode()
-
-                    if content != text:
-                        file = drive.CreateFile({'id': file_id})
-                        file.SetContentString(text)
-                        file.Upload()
-
-                        update_query = "UPDATE clients SET content = ? WHERE id = ?"
-                        cursor.execute(update_query, (text, id))
+                cursor.execute("SELECT * FROM clients WHERE user = ?", (user_id,))
+                client_names = cursor.fetchall()
+                for client in client_names:
+                    id, name, file_id, username, content, user = client
+                    found = False
+                    for client_item in data:
+                        if client_item["username"] == username:
+                            found = True
+                            break
+                    if not found:
+                        cursor.execute("DELETE FROM clients WHERE id = ?", (id,))
                         conn.commit()
 
-            print("[UPDATED]")
-    except sqlite3.Error as e:
-        print("[ERROR]")
-    finally:
-        conn.close()
+                for client in data:
+                    name = str(random.randint(100, 1000000000000000))
+                    username = client["username"]
+
+                    cursor.execute("SELECT * FROM clients WHERE username=? AND user=?", (username, user_id,))
+                    client_db = cursor.fetchone()
+                    if not client_db:
+                        file1 = drive.CreateFile(
+                            {'title': random.randint(100,
+                                                     1000000000000000)})  # Create GoogleDriveFile instance with title 'Hello.txt'.
+
+                        text = ""
+                        for link in client["links"]:
+                            link = link.split("#")
+                            text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
+
+                        text = base64.b64encode(text.encode()).decode()
+                        file1.SetContentString(text)  # Set content of the file from given string.
+                        file1.Upload()
+
+                        permission = file1.InsertPermission({
+                            'type': 'anyone',
+                            'value': 'anyone',
+                            'role': 'reader'})
+
+                        file_id = extract_file_id(file1['alternateLink'])
+
+                        cursor.execute("INSERT OR REPLACE INTO clients (name, file_id, username, content, user) VALUES ("
+                                       "?, ?, ?, ?, ?)", (name, file_id, username, text, user_id))
+                        conn.commit()
+                    else:
+                        id, name, file_id, username, content, user = client_db
+
+                        text = ""
+                        for link in client["links"]:
+                            link = link.split("#")
+                            text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
+
+                        text = base64.b64encode(text.encode()).decode()
+
+                        if content != text:
+                            file = drive.CreateFile({'id': file_id})
+                            file.SetContentString(text)
+                            file.Upload()
+
+                            update_query = "UPDATE clients SET content = ? WHERE id = ?"
+                            cursor.execute(update_query, (text, id))
+                            conn.commit()
+
+                            print(
+                                "Client with username " + str(username) + " updated successfully!")
+
+                print("Total Clients Number: " + str(len(data)))
+            else:
+                print("Error fetching users from given domain. Content: " + res.text)
+        except sqlite3.Error as e:
+            print(f"Error fetching client list: {e}")
+        finally:
+            conn.close()
+    print("[UPDATED]")
 
 
 def run_scheduled():
@@ -423,8 +397,6 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler("get_urls", get_urls))
     application.add_handler(CommandHandler("sign_in", sign_in))
     application.add_handler(CommandHandler("help", help))
-    application.add_handler(CallbackQueryHandler(show_client_info, pattern=r"^view_\d+$"))
-    application.add_handler(CallbackQueryHandler(handle_button_click, pattern=r"^(edit|delete)_\d+$"))
 
     application.run_polling(timeout=250)
 
