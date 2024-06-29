@@ -127,7 +127,7 @@ def save_or_replace_token(telegram_id, token):
     cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
     user = cursor.fetchone()
     if user:
-        cursor.execute("UPDATE users SET token=? WHERE id=?", (token, telegram_id))
+        cursor.execute("UPDATE users SET token=? WHERE telegram_id=?", (token, telegram_id))
     else:
         cursor.execute("INSERT INTO users (token, telegram_id) VALUES (?, ?);", (token, telegram_id))
     conn.commit()
