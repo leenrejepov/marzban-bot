@@ -227,7 +227,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                    "?, ?, ?, ?, ?, ?)", (name, file_id, username, text, user_id, singbox_file_id))
                     conn.commit()
                 else:
-                    id, name, file_id, username, content, user, singbox_file = client_db
+                    id, name, file_id, username, content, user, singbox_file_id = client_db
 
                     text = ""
                     for link in client["links"]:
@@ -250,7 +250,10 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 filename = str(random.randint(100, 1000000000000000))+".json"
                                 with open(filename, 'w') as json_file:
                                     json.dump(data, json_file)
-                                singbox_file = drive.CreateFile({'id': singbox_file})
+                                if singbox_file_id:
+                                    singbox_file = drive.CreateFile({'id': singbox_file_id})
+                                else:
+                                    singbox_file = drive.CreateFile()
                                 singbox_file.SetContentFile(filename)
                                 singbox_file.Upload()
                                 if os.path.exists(filename):
