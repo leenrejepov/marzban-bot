@@ -210,7 +210,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             res = res.json()
                             filename = str(random.randint(100, 1000000000000000))+".json"
                             with open(filename, 'w') as json_file:
-                                json.dump(data, json_file)
+                                json.dump(res, json_file)
                             singbox_file = drive.CreateFile()
                             singbox_file.SetContentFile(filename)
                             singbox_file.Upload()
@@ -250,7 +250,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 res = res.json()
                                 filename = str(random.randint(100, 1000000000000000))+".json"
                                 with open(filename, 'w') as json_file:
-                                    json.dump(data, json_file)
+                                    json.dump(res, json_file)
                                 if singbox_file_id:
                                     singbox_file = drive.CreateFile({'id': singbox_file_id})
                                 else:
