@@ -243,6 +243,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         
                         # Sing-box
                         singbox_url = client["subscription_url"] + "/sing-box"
+                        singbox_file = None
                         if singbox_url:
                             res = requests.get(singbox_url)
                             if res.status_code == 200:
@@ -259,8 +260,24 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 if os.path.exists(filename):
                                     os.remove(filename)
 
-                        update_query = "UPDATE clients SET content = ? WHERE id = ?"
-                        cursor.execute(update_query, (text, id))
+                        if singbox_file_id:
+                            update_query = "UPDATE clients SET content = ? WHERE id = ?"
+                            cursor.execute(update_query, (text, id))
+                        else:
+                            if singbox_file:
+                                permission = singbox_file.InsertPermission({
+                                'type': 'anyone',
+                                'value': 'anyone',
+                                'role': 'reader'})
+
+                                singbox_file_id = extract_file_id(singbox_file['alternateLink'])
+                                update_query = "UPDATE clients SET content = ?, singbox_file=? WHERE id = ?"
+
+                                cursor.execute(update_query, (text, singbox_file_id, id))
+                            else:
+                                update_query = "UPDATE clients SET content = ? WHERE id = ?"
+                                cursor.execute(update_query, (text, id))
+
                         conn.commit()
 
                         await update.message.reply_text(
