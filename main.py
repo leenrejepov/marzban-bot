@@ -40,7 +40,7 @@ sql_create_clients_table = """
         username TEXT NOT NULL,
         content TEXT NOT NULL,
         user INTEGER NOT NULL,
-        singbox_file TEXT,
+        singbox_file TEXT
     );
     """
 
