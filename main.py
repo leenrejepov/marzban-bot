@@ -203,7 +203,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     # Sing-box
                     singbox_file_id = ""
-                    singbox_url = client["subscription_url"]
+                    singbox_url = client["subscription_url"] + "/sing-box"
                     if singbox_url:
                         res = requests.get(singbox_url)
                         if res.status_code == 200:
@@ -242,7 +242,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         file.Upload()
                         
                         # Sing-box
-                        singbox_url = client["subscription_url"]
+                        singbox_url = client["subscription_url"] + "/sing-box"
                         if singbox_url:
                             res = requests.get(singbox_url)
                             if res.status_code == 200:
