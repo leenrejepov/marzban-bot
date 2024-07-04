@@ -5,6 +5,7 @@ import os
 import threading
 import time
 from dotenv import load_dotenv
+import json
 
 load_dotenv()
 import requests
@@ -38,7 +39,8 @@ sql_create_clients_table = """
         file_id TEXT NOT NULL,
         username TEXT NOT NULL,
         content TEXT NOT NULL,
-        user INTEGER NOT NULL
+        user INTEGER NOT NULL,
+        singbox_file TEXT,
     );
     """
 
@@ -71,6 +73,13 @@ def write_dict_to_file(dict_list, filename):
             file_id = f"https://drive.usercontent.google.com/uc?authuser=0&export=download&id={d[2]}"
             file.write(f"{username} \n{file_id}\n\n")
 
+
+def write_singbox_to_file(dict_list, filename):
+    with open(filename, 'w') as file:
+        for d in dict_list:
+            username = d[3]
+            file_id = f"https://drive.usercontent.google.com/uc?authuser=0&export=download&id={d[6]}"
+            file.write(f"{username} \n{file_id}\n\n")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
@@ -154,7 +163,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cursor.execute("SELECT * FROM clients WHERE user = ?", (user_id, ))
             client_names = cursor.fetchall()
             for client in client_names:
-                id, name, file_id, username, content, user = client
+                id, name, file_id, username, content, user, singbox_file = client
                 found = False
                 for client_item in data:
                     if client_item["username"] == username:
@@ -175,6 +184,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         {'title': random.randint(100,
                                                  1000000000000000)})  # Create GoogleDriveFile instance with title 'Hello.txt'.
                     
+                    # VLESS
                     text = ""
                     for link in client["links"]:
                         link = link.split("#")                        
@@ -191,11 +201,33 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     file_id = extract_file_id(file1['alternateLink'])
 
-                    cursor.execute("INSERT OR REPLACE INTO clients (name, file_id, username, content, user) VALUES ("
-                                   "?, ?, ?, ?, ?)", (name, file_id, username, text, user_id))
+                    # Sing-box
+                    singbox_file_id = ""
+                    singbox_url = client["subscription_url"]
+                    if singbox_url:
+                        res = requests.get(singbox_url)
+                        if res.status_code == 200:
+                            res = res.json()
+                            filename = str(random.randint(100, 1000000000000000))+".json"
+                            with open(filename, 'w') as json_file:
+                                json.dump(data, json_file)
+                            singbox_file = drive.CreateFile()
+                            singbox_file.SetContentFile(filename)
+                            singbox_file.Upload()
+                            if os.path.exists(filename):
+                                os.remove(filename)
+                            permission = singbox_file.InsertPermission({
+                                'type': 'anyone',
+                                'value': 'anyone',
+                                'role': 'reader'})
+
+                            singbox_file_id = extract_file_id(singbox_file['alternateLink'])
+
+                    cursor.execute("INSERT OR REPLACE INTO clients (name, file_id, username, content, user, singbox_file) VALUES ("
+                                   "?, ?, ?, ?, ?, ?)", (name, file_id, username, text, user_id, singbox_file_id))
                     conn.commit()
                 else:
-                    id, name, file_id, username, content, user = client_db
+                    id, name, file_id, username, content, user, singbox_file = client_db
 
                     text = ""
                     for link in client["links"]:
@@ -208,6 +240,21 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         file = drive.CreateFile({'id': file_id})
                         file.SetContentString(text)
                         file.Upload()
+                        
+                        # Sing-box
+                        singbox_url = client["subscription_url"]
+                        if singbox_url:
+                            res = requests.get(singbox_url)
+                            if res.status_code == 200:
+                                res = res.json()
+                                filename = str(random.randint(100, 1000000000000000))+".json"
+                                with open(filename, 'w') as json_file:
+                                    json.dump(data, json_file)
+                                singbox_file = drive.CreateFile({'id': singbox_file})
+                                singbox_file.SetContentFile(filename)
+                                singbox_file.Upload()
+                                if os.path.exists(filename):
+                                    os.remove(filename)
 
                         update_query = "UPDATE clients SET content = ? WHERE id = ?"
                         cursor.execute(update_query, (text, id))
@@ -285,6 +332,31 @@ async def get_urls(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
 
+async def get_urls_singbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+
+    user = get_user(user_id)
+    if not user:
+        await update.message.reply_text(f"Please sign in to use")
+        return
+
+    id, token, telegram_id = user
+
+    conn = sqlite3.connect(DATABASE_FILE)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM clients WHERE user=?", (id, ))
+        client_names = cursor.fetchall()
+        document_path = str(telegram_id) + '.txt'  # Specify the path to your generated text file
+        write_singbox_to_file(client_names, document_path)
+        with open(document_path, 'rb') as document:
+            chat_id = update.message.chat_id
+            await context.bot.send_document(chat_id, document)
+    except sqlite3.Error as e:
+        await update.message.reply_text(f"Error fetching client list: {e}")
+    finally:
+        conn.close()
+
 def update_clients_scheduled():
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
@@ -303,7 +375,7 @@ def update_clients_scheduled():
                 cursor.execute("SELECT * FROM clients WHERE user = ?", (user_id,))
                 client_names = cursor.fetchall()
                 for client in client_names:
-                    id, name, file_id, username, content, user = client
+                    id, name, file_id, username, content, user, singbox_file = client
                     found = False
                     for client_item in data:
                         if client_item["username"] == username:
@@ -344,7 +416,7 @@ def update_clients_scheduled():
                                        "?, ?, ?, ?, ?)", (name, file_id, username, text, user_id))
                         conn.commit()
                     else:
-                        id, name, file_id, username, content, user = client_db
+                        id, name, file_id, username, content, user, singbox_file = client_db
 
                         text = ""
                         for link in client["links"]:
@@ -395,6 +467,7 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler("list_clients", list_clients))
     application.add_handler(CommandHandler("update_clients", update_clients))
     application.add_handler(CommandHandler("get_urls", get_urls))
+    application.add_handler(CommandHandler("get_urls_singbox", get_urls_singbox))
     application.add_handler(CommandHandler("sign_in", sign_in))
     application.add_handler(CommandHandler("help", help))
 
