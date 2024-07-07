@@ -57,6 +57,41 @@ conn.commit()
 conn.close()
 
 
+def modify_singbox_json(data):
+    # Обработка JSON
+    for outbound in data.get("outbounds", []):
+        if "cerberus" in outbound.get("tag", "").lower():
+            if "tls" not in outbound:
+                outbound["tls"] = {}
+            outbound["tls"]["insecure"] = True
+
+    if "route" in data:
+        data["route"].pop("geoip", None)
+        data["route"].pop("geosite", None)
+
+        for rule in data["route"].get("rules", []):
+            if "geoip" in rule and rule["geoip"] == "private":
+                rule.update({
+                    "ip_cidr": [
+                        "10.0.0.0/8",
+                        "172.16.0.0/12",
+                        "192.168.0.0/16",
+                        "100.64.0.0/10",
+                        "127.0.0.0/8",
+                        "169.254.0.0/16"
+                    ],
+                    "outbound": "direct"
+                })
+                rule.pop("geoip", None)
+    if "dns" in data and "rules" in data["dns"]:
+        data["dns"]["rules"] = [
+            rule for rule in data["dns"]["rules"]
+            if not (rule.get("geosite") == "private" and rule.get("server") == "dns_direct")
+        ]
+
+    return data
+
+
 def extract_file_id(url):
     pattern = r'/file/d/([a-zA-Z0-9_-]+)/'
     match = re.search(pattern, url)
@@ -207,7 +242,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if singbox_url:
                         res = requests.get(singbox_url)
                         if res.status_code == 200:
-                            res = res.json()
+                            res = modify_singbox_json(res.json())
                             filename = str(random.randint(100, 1000000000000000))+".json"
                             with open(filename, 'w') as json_file:
                                 json.dump(res, json_file)
@@ -247,7 +282,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if singbox_url:
                             res = requests.get(singbox_url)
                             if res.status_code == 200:
-                                res = res.json()
+                                res = modify_singbox_json(res.json())
                                 filename = str(random.randint(100, 1000000000000000))+".json"
                                 with open(filename, 'w') as json_file:
                                     json.dump(res, json_file)
