@@ -331,7 +331,7 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def date_to_timestamp(date_str):
     try:
         # Parse the date string assuming "dd:mm:yyyy" format
-        date_obj = datetime.strptime(date_str, "%d:%m:%Y")
+        date_obj = datetime.strptime(date_str, "%d.%m.%Y")
         # Convert datetime object to Unix timestamp
         timestamp = int(date_obj.timestamp())
         return timestamp
@@ -371,7 +371,10 @@ async def add_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     res = requests.post(f"{DOMAIN}/api/user", data=user, headers={"Authorization": "Bearer " + token})
 
-    await update.message.reply_text(res.text)
+    if res.status_code == 200:
+        await update.message.reply_text("Successfully added client")
+    else:
+        await update.message.reply_text(res.text)
 
 
 
