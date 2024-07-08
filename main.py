@@ -369,7 +369,7 @@ async def add_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "status": "active", 
     }
 
-    res = requests.post(f"{DOMAIN}/api/user", data=user, headers={"Authorization": "Bearer " + token})
+    res = requests.post(f"{DOMAIN}/api/user", json=user, headers={"Authorization": "Bearer " + token})
 
     if res.status_code == 200:
         await update.message.reply_text("Successfully added client")
