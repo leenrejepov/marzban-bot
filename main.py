@@ -11,6 +11,7 @@ load_dotenv()
 import requests
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
+from datetime import datetime
 
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -327,6 +328,53 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
 
+def date_to_timestamp(date_str):
+    try:
+        # Parse the date string assuming "dd:mm:yyyy" format
+        date_obj = datetime.strptime(date_str, "%d:%m:%Y")
+        # Convert datetime object to Unix timestamp
+        timestamp = int(date_obj.timestamp())
+        return timestamp
+    except ValueError:
+        return None 
+
+def gb_to_bytes(gb):
+    bytes = gb * 1024 * 1024 * 1024
+    return bytes
+
+async def add_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+
+    user = get_user(user_id)
+    if not user:
+        await update.message.reply_text(f"Please sign in to use")
+        return
+
+    id, token, telegram_id = user
+
+    args = context.args
+    if len(args) != 3:
+        await update.message.reply_text("Usage: /add_client <username> <data limit> <expire date>")
+        return
+    
+    username, data_limit, expire_date = args[0], int(args[1]), args[2]
+
+    user = {
+        "username": username,
+        "proxies": {"vless": {}},
+        "inbounds": {},
+        "expire": date_to_timestamp(expire_date),
+        "data_limit": gb_to_bytes(data_limit),
+        "data_limit_reset_strategy": "no_reset", 
+        "status": "active", 
+    }
+
+    res = requests.post(f"{DOMAIN}/api/user", data=user, headers={"Authorization": "Bearer " + token})
+
+    await update.message.reply_text(res.text)
+
+
+
 async def sign_in(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
 
@@ -523,6 +571,7 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler("update_clients", update_clients))
     application.add_handler(CommandHandler("get_urls", get_urls))
     application.add_handler(CommandHandler("get_urls_singbox", get_urls_singbox))
+    application.add_handler(CommandHandler("add_client", add_client))
     application.add_handler(CommandHandler("sign_in", sign_in))
     application.add_handler(CommandHandler("help", help))
 
