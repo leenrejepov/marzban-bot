@@ -224,7 +224,10 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text = ""
                     for link in client["links"]:
                         link = link.split("#")                        
-                        text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
+                        if len(link) > 1:
+                            text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
+                        else:
+                            text += link[0] + "&allowInsecure=1#\n"
 
                     text = base64.b64encode(text.encode()).decode()
                     file1.SetContentString(text)  # Set content of the file from given string.
@@ -268,7 +271,10 @@ async def update_clients(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text = ""
                     for link in client["links"]:
                         link = link.split("#")
-                        text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
+                        if len(link) > 1:
+                            text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
+                        else:
+                            text += link[0] + "&allowInsecure=1#\n"
 
                     text = base64.b64encode(text.encode()).decode()
 
@@ -505,7 +511,10 @@ def update_clients_scheduled():
                         text = ""
                         for link in client["links"]:
                             link = link.split("#")
-                            text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
+                            if len(link) > 1:
+                                text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
+                            else:
+                                text += link[0] + "&allowInsecure=1#\n"
 
                         text = base64.b64encode(text.encode()).decode()
                         file1.SetContentString(text)  # Set content of the file from given string.
@@ -527,7 +536,10 @@ def update_clients_scheduled():
                         text = ""
                         for link in client["links"]:
                             link = link.split("#")
-                            text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
+                            if len(link) > 1:
+                                text += link[0] + "&allowInsecure=1#" + link[1] + "\n"
+                            else:
+                                text += link[0] + "&allowInsecure=1#\n"
 
                         text = base64.b64encode(text.encode()).decode()
 
